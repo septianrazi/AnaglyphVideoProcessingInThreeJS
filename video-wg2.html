@@ -1,0 +1,512 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0" />
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+
+      margin: 0;
+      overflow: hidden;
+      background-color: #aaaaaa;
+      background-attachment: fixed !important;
+    }
+  </style>
+  <style>
+    body {
+      font-family: Monospace;
+      margin: 0px;
+      overflow: hidden;
+    }
+  </style>
+</head>
+
+<body>
+  <script id="vertShader" type="shader">
+      uniform mat4 modelViewMatrix;
+      uniform mat4 projectionMatrix;
+      uniform sampler2D image;
+
+
+      precision highp float;
+
+      in vec3 position;
+
+      void main() {
+          gl_Position = projectionMatrix *
+                        modelViewMatrix * vec4(position, 1.0 );
+      }
+    </script>
+
+  <script id="fragShader" type="shader">
+      precision highp float;
+
+      uniform sampler2D image;
+      uniform int kernelSize;
+      uniform float colorScaleR;
+      uniform float colorScaleG;
+      uniform float colorScaleB;
+      uniform bool invert;
+      uniform float imageWidth;
+      uniform float imageHeight;
+      uniform int anaglyph;
+      uniform float std;
+      uniform bool gaussianFlag;
+
+      out vec4 out_FragColor;
+
+
+
+
+      vec4 TrueAnaglyph(vec4 textureValue, vec4 textureValue2) {
+            
+        textureValue.r = textureValue.x * 0.299 + textureValue.y * 0.587 + textureValue.z * 0.114;
+        textureValue.g = 0.;
+        textureValue.b = 0.;
+
+        textureValue2.x = 0.;
+        textureValue2.y = 0.;
+        textureValue2.z = textureValue2.x * 0.299 + textureValue2.y * 0.587 + textureValue2.z * 0.114;
+
+        vec4 res = (textureValue + textureValue2);
+
+        return res;
+      }
+
+      vec4 GrayAnaglyph(vec4 textureValue, vec4 textureValue2) {
+            
+        textureValue.x = textureValue.x * 0.299 + textureValue.y * 0.587 + textureValue.z * 0.114;
+        textureValue.y = 0.;
+        textureValue.z = 0.;
+
+        textureValue2.x = 0.;
+        textureValue2.y = textureValue2.x * 0.299 + textureValue2.y * 0.587 + textureValue2.z * 0.114;
+        textureValue2.z = textureValue2.x * 0.299 + textureValue2.y * 0.587 + textureValue2.z * 0.114;
+
+        vec4 res = (textureValue + textureValue2);
+
+        return res;
+      }
+
+
+      vec4 ColorAnaglyph(vec4 textureValue, vec4 textureValue2) {
+            
+        textureValue.x = textureValue.x;
+        textureValue.y = 0.;
+        textureValue.z = 0.;
+
+        textureValue2.x = 0.;
+        textureValue2.y =  textureValue2.y;
+        textureValue2.z = textureValue2.z;
+
+        vec4 res = (textureValue + textureValue2);
+
+        return res;
+      }
+
+      vec4 HalfColorAnaglyph(vec4 textureValue, vec4 textureValue2) {
+            
+        textureValue.x = textureValue.x * 0.299 + textureValue.y * 0.587 + textureValue.z * 0.114;
+        textureValue.y = 0.;
+        textureValue.z = 0.;
+
+        textureValue2.x = 0.;
+        textureValue2.y =  textureValue2.y;
+        textureValue2.z = textureValue2.z;
+
+        vec4 res = (textureValue + textureValue2);
+
+        return res;
+      }
+
+      vec4 OptimisedAnaglyph(vec4 textureValue, vec4 textureValue2) {
+            
+        textureValue.x = textureValue.x * 0. + textureValue.y * 0.7 + textureValue.z * 0.3;
+        textureValue.y = 0.;
+        textureValue.z = 0.;
+
+        textureValue2.x = 0.;
+        textureValue2.y =  textureValue2.y;
+        textureValue2.z = textureValue2.z;
+
+        vec4 res = (textureValue + textureValue2);
+
+        return res;
+      }
+
+      // Gaussian filter
+      float gaussian(float x, float sigma) {
+        return exp(-(x * x) / (2.0 * sigma * sigma)) / (sqrt(2.0 * 3.14159) * sigma);
+      }
+
+      
+  
+      void main(void) {
+
+      				vec4 textureValue = vec4 ( 0,0,0,0 );
+      				vec4 textureValue2 = vec4 ( 0,0,0,0 );
+
+
+
+              // no filter
+              //for (int i=-kernelSize;i<=kernelSize;i++)
+                //  for (int j=-kernelSize;j<=kernelSize;j++)
+                  //  {
+                    //  textureValue += texelFetch( image, ivec2(i+int(gl_FragCoord.x/2.0), j+int(gl_FragCoord.y)), 0 );
+
+                      //textureValue2 += texelFetch( image, ivec2(i+int(imageWidth/2.0 + gl_FragCoord.x/2.0), j+int(gl_FragCoord.y)), 0 );
+                    //}
+                    
+              //textureValue /= float((kernelSize*2+1)*(kernelSize*2+1));
+              //textureValue2 /= float((kernelSize*2+1)*(kernelSize*2+1));
+
+              // no filter
+              textureValue += texelFetch( image, ivec2(int(gl_FragCoord.x/2.0), int(gl_FragCoord.y)), 0 );
+              textureValue2 += texelFetch( image, ivec2(int(imageWidth/2.0 + gl_FragCoord.x/2.0), int(gl_FragCoord.y)), 0 );
+
+
+              // gaussian filter
+
+              if (gaussianFlag){
+                textureValue = vec4 ( 0,0,0,0 );
+                textureValue2 = vec4 ( 0,0,0,0 );
+                vec4 mostRecentTextureVal = vec4 ( 0,0,0,0 );
+                vec4 mostRecentTextureVal2 = vec4 ( 0,0,0,0 );
+                float counter1 = 0.;
+                float counter2 = 0.;
+                for (int i=-kernelSize;i<=kernelSize;i++)
+                    for (int j=-kernelSize;j<=kernelSize;j++)
+                    {
+                      //texture1
+                      if (float(i + int(gl_FragCoord.x)) < imageWidth && float(i + int(gl_FragCoord.x)) > 0. && float(j + int(gl_FragCoord.y)) < imageHeight && float(j + int(gl_FragCoord.y)) > 0.){ // grab recent texture if within bounds
+                        
+                        mostRecentTextureVal = texelFetch( image, ivec2(i+int(gl_FragCoord.x/2.0), j+int(gl_FragCoord.y)), 0 );
+                        counter1 += gaussian(float(i), std);
+                      } // if not we use the most recent texture grabbed from before
+                      textureValue += gaussian(float(i), std)*mostRecentTextureVal;
+    
+                      // texture2
+                      if (float(i + int(gl_FragCoord.x)) > 0.0 && float(i + int(gl_FragCoord.x)) < imageWidth && float(j + int(gl_FragCoord.y)) < imageHeight && float(j + int(gl_FragCoord.y)) > 0.){ // grab recent texture if within bounds
+                        
+                        mostRecentTextureVal2 = texelFetch( image, ivec2(i+int(imageWidth/2.0 + gl_FragCoord.x/2.0), j+int(gl_FragCoord.y)), 0 );
+                        counter2 += gaussian(float(i), std);
+                      } // if not we use the most recent texture grabbed from before
+                      textureValue2 += gaussian(float(i), std)*mostRecentTextureVal2;
+                    }
+                    textureValue /= counter1;            
+                    textureValue2 /= counter2;
+              }
+             
+          
+            
+             
+
+
+              vec4 textureValueMerged;
+              switch (anaglyph) {
+                case 0:
+                  textureValueMerged = TrueAnaglyph(textureValue, textureValue2);
+                  break;
+                case 1:
+                  textureValueMerged = GrayAnaglyph(textureValue, textureValue2);
+                  break;
+                case 2:
+                  textureValueMerged = ColorAnaglyph(textureValue, textureValue2);
+                  break;
+                case 3:
+                  textureValueMerged = HalfColorAnaglyph(textureValue, textureValue2);
+                  break;
+                case 4:
+                  textureValueMerged = OptimisedAnaglyph(textureValue, textureValue2);
+                  break;
+                default:
+                  textureValueMerged = textureValue;// + textureValue2;
+                  break;
+              }
+
+      				out_FragColor = vec4(vec3(colorScaleR,colorScaleG,colorScaleB),1.0)*textureValueMerged;
+      				if (invert)
+      				{
+      					out_FragColor = vec4(1,1,1,0) - out_FragColor;
+      					out_FragColor.a = 1.0;
+      				}
+      		}
+
+
+      
+    </script>
+
+  <script async src="https://unpkg.com/es-module-shims@1.3.6/dist/es-module-shims.js"></script>
+  <script type="importmap">
+		  {
+			"imports": {
+			  "three": "https://unpkg.com/three@0.161.0/build/three.module.js",
+			  "three/addons/": "https://unpkg.com/three@0.161.0/examples/jsm/"
+			}
+		  }
+		</script>
+
+  <script type="module">
+    import * as THREE from 'three';
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+    import { GUI } from "three/addons/libs/lil-gui.module.min.js";
+    import WEBGL from "three/addons/capabilities/WebGL.js";
+
+    function IVimageProcessing(height, width, imageProcessingMaterial) {
+      this.height = height;
+      this.width = width;
+
+      //3 rtt setup
+      this.scene = new THREE.Scene();
+      this.orthoCamera = new THREE.OrthographicCamera(
+        -1,
+        1,
+        1,
+        -1,
+        1 / Math.pow(2, 53),
+        1
+      );
+
+      //4 create a target texture
+      var options = {
+        minFilter: THREE.NearestFilter,
+        magFilter: THREE.NearestFilter,
+        format: THREE.RGBAFormat,
+        type: THREE.UnsignedByteType,
+        //          type:THREE.FloatType,
+        canvas: canvas,
+        context: context,
+      };
+      this.rtt = new THREE.WebGLRenderTarget(width, height, options);
+
+      var geom = new THREE.BufferGeometry();
+      geom.setAttribute(
+        "position",
+        new THREE.BufferAttribute(
+          new Float32Array([
+            -1, -1, 0, 1, -1, 0, 1, 1, 0, -1, -1, 0, 1, 1, 0, -1, 1, 0,
+          ]),
+          3
+        )
+      );
+      this.scene.add(new THREE.Mesh(geom, imageProcessingMaterial));
+    }
+
+    function IVprocess(imageProcessing, renderer) {
+      renderer.setRenderTarget(imageProcessing.rtt);
+      renderer.render(imageProcessing.scene, imageProcessing.orthoCamera);
+      renderer.setRenderTarget(null);
+    }
+
+    var camera, controls, scene, renderer, container;
+    var context, canvas;
+    var plan;
+
+    // VIDEO AND THE ASSOCIATED TEXTURE
+    var video, videoTexture;
+
+    var imageProcessing, imageProcessingMaterial;
+
+    // GUI
+    var gui;
+
+    init();
+    animate();
+
+    function init() {
+      if (WEBGL.isWebGL2Available() === false) {
+        document.body.appendChild(WEBGL.getWebGL2ErrorMessage());
+      }
+      container = document.createElement("div");
+      document.body.appendChild(container);
+
+      canvas = document.createElement("canvas");
+      context = canvas.getContext("webgl2");
+      document.body.appendChild(canvas);
+
+      scene = new THREE.Scene();
+
+      renderer = new THREE.WebGLRenderer({
+        canvas: canvas,
+        context: context,
+      }); //, antialias: true, alpha: true } );
+      renderer.autoClear = false;
+      renderer.setPixelRatio(window.devicePixelRatio);
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      renderer.shadowMap.enabled = false;
+
+      container.appendChild(renderer.domElement);
+
+      camera = new THREE.PerspectiveCamera(
+        75,
+        window.innerWidth / window.innerHeight,
+        0.001,
+        10
+      );
+      camera.position.z = 0.7;
+      controls = new OrbitControls(camera, renderer.domElement);
+      controls.minDistance = 0.005;
+      controls.maxDistance = 1.0;
+      controls.enableRotate = true;
+      controls.addEventListener("change", render);
+      controls.update();
+
+      let parameters = {
+        anaglyph: "None",
+
+      }
+
+      let anaglyphTypes = ['TrueAnaglyph', 'GrayAnaglyph', 'ColorAnaglyph', 'HalfColorAnaglyph', 'OptimisedAnaglyph', 'None']
+
+
+      video = document.createElement("video");
+      video.src = "video.mp4";
+      video.load();
+      video.muted = true;
+      video.loop = true;
+
+      video.onloadeddata = function () {
+        videoTexture = new THREE.VideoTexture(video);
+        videoTexture.minFilter = THREE.NearestFilter;
+        videoTexture.magFilter = THREE.NearestFilter;
+        videoTexture.generateMipmaps = false;
+        videoTexture.format = THREE.RGBAFormat;
+
+        imageProcessingMaterial = new THREE.RawShaderMaterial({
+          uniforms: {
+            kernelSize: { type: "i", value: 1 },
+            colorScaleR: { type: "f", value: 1.0 },
+            colorScaleG: { type: "f", value: 1.0 },
+            colorScaleB: { type: "f", value: 1.0 },
+            invert: { type: "b", value: false },
+            gaussianFlag: { type: "b", value: false },
+            image: { type: "t", value: videoTexture },
+            imageWidth: { type: "f", value: video.videoWidth },
+            imageHeight: { type: "f", value: video.videoHeight },
+            anaglyph: { type: "i", value: anaglyphTypes.indexOf(parameters.anaglyph) },
+            std: { type: "f", value: 2.0 },
+          },
+          vertexShader: document.getElementById("vertShader").text,
+          fragmentShader: document.getElementById("fragShader").text,
+          glslVersion: THREE.GLSL3,
+        });
+
+        imageProcessing = new IVimageProcessing(
+          video.videoHeight,
+          video.videoWidth,
+          imageProcessingMaterial
+        );
+
+        let anaglyphWidth = video.videoWidth / 2;
+
+        console.log(imageProcessing.width);
+
+        var geometry = new THREE.PlaneGeometry(
+          1,
+          video.videoHeight / anaglyphWidth //.videoWidth
+        );
+        var material = new THREE.MeshBasicMaterial({
+          map: imageProcessing.rtt.texture,
+          side: THREE.DoubleSide,
+        });
+        plan = new THREE.Mesh(geometry, material);
+        plan.receiveShadow = false;
+        plan.castShadow = false;
+        scene.add(plan);
+
+        var geometry2 = new THREE.PlaneGeometry(
+          1,
+          video.videoHeight / video.videoWidth
+        );
+        var material2 = new THREE.MeshBasicMaterial({
+          map: videoTexture,
+          side: THREE.DoubleSide,
+        });
+        plan = new THREE.Mesh(geometry2, material2);
+        plan.position.z = -0.5;
+        plan.receiveShadow = false;
+        plan.castShadow = false;
+        scene.add(plan);
+
+        var pausePlayObj = {
+          pausePlay: function () {
+            if (!video.paused) {
+              console.log("pause");
+              video.pause();
+            } else {
+              console.log("play");
+              video.play();
+            }
+          },
+          add10sec: function () {
+            video.currentTime = video.currentTime + 10;
+            console.log(video.currentTime);
+          },
+        };
+
+        {
+          gui = new GUI();
+          gui
+            .add(imageProcessingMaterial.uniforms.colorScaleR, "value", 0, 1)
+            .name("Red");
+          gui
+            .add(imageProcessingMaterial.uniforms.colorScaleG, "value", 0, 1)
+            .name("Green");
+          gui
+            .add(imageProcessingMaterial.uniforms.colorScaleB, "value", 0, 1)
+            .name("Blue");
+          gui
+            .add(imageProcessingMaterial.uniforms.kernelSize, "value", 0, 100, 1)
+            .name("kernelSize");
+          gui
+            .add(imageProcessingMaterial.uniforms.std, "value", 0, 21)
+            .name("std");
+          gui
+            .add(imageProcessingMaterial.uniforms.invert, "value")
+            .name("Invert");
+          gui
+            .add(imageProcessingMaterial.uniforms.gaussianFlag, "value")
+            .name("Gaussian Blur");
+          gui.add(pausePlayObj, "pausePlay").name("Pause/play video");
+          gui.add(pausePlayObj, "add10sec").name("Add 10 seconds");
+          gui.add(parameters, 'anaglyph', anaglyphTypes).name('Anaglyph').onChange(function (value) {
+            imageProcessingMaterial.uniforms.anaglyph.value = anaglyphTypes.indexOf(value);
+          });
+        }
+
+
+        video.play();
+      };
+
+      window.addEventListener("resize", onWindowResize, false);
+    }
+
+    function render() {
+      renderer.clear();
+
+      if (typeof imageProcessing !== "undefined")
+        IVprocess(imageProcessing, renderer);
+      renderer.render(scene, camera);
+    }
+
+    function animate() {
+      requestAnimationFrame(animate);
+      controls.update();
+      render();
+    }
+
+    function onWindowResize() {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      render();
+    }
+  </script>
+</body>
+
+</html>
