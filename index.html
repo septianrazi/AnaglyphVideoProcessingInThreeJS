@@ -1,0 +1,778 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0" />
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+
+      margin: 0;
+      overflow: hidden;
+      background-color: #aaaaaa;
+      background-attachment: fixed !important;
+    }
+  </style>
+  <style>
+    body {
+      font-family: Monospace;
+      margin: 0px;
+      overflow: hidden;
+    }
+  </style>
+</head>
+
+<body>
+  <script id="vertShader" type="shader">
+      uniform mat4 modelViewMatrix;
+      uniform mat4 projectionMatrix;
+      uniform sampler2D image;
+
+
+      precision highp float;
+
+      in vec3 position;
+
+      void main() {
+          gl_Position = projectionMatrix *
+                        modelViewMatrix * vec4(position, 1.0 );
+      }
+    </script>
+
+
+  <script id="gausVertFragShader" type="shader">
+      precision highp float;
+
+      uniform sampler2D image;
+      uniform int kernelSize;
+     
+      uniform float imageWidth;
+      uniform float imageHeight;
+      uniform int anaglyph;
+      uniform float std;
+      uniform bool seperableFlag;
+
+      out vec4 out_FragColor;
+
+
+      // Gaussian filter
+      float gaussian(float x, float sigma) {
+        return exp(-(x * x) / (2.0 * sigma * sigma)) / (sqrt(2.0 * 3.14159) * sigma);
+      }
+
+      void main(void) {
+
+      				vec4 textureValue = vec4 ( 0,0,0,0 );
+
+              // no filter
+              textureValue += texelFetch( image, ivec2(int(gl_FragCoord.x), int(gl_FragCoord.y)), 0 );
+                    
+              // ------------
+              // SEPERABLE GAUSSIAN (VERTICAL PART)
+              // ------------
+
+              if (seperableFlag){
+                textureValue = vec4 ( 0,0,0,0 );
+                vec4 mostRecentTextureVal = vec4 ( 0,0,0,0 );
+                float counter1 = 0.;
+                for (int i=-kernelSize;i<=kernelSize;i++)
+                    {
+                        if (float(i + int(gl_FragCoord.y)) < imageWidth && float(i + int(gl_FragCoord.y)) > 0. ){ // grab recent texture if within bounds
+                            mostRecentTextureVal = texelFetch( image, ivec2(int(gl_FragCoord.x), i+int(gl_FragCoord.y)), 0 );
+                            counter1 += gaussian(float(i), std);
+                            textureValue += gaussian(float(i), std) *  mostRecentTextureVal;
+                        } 
+                    }
+                textureValue /= counter1;            
+              }      
+
+              vec4 textureValueMerged = textureValue;
+                
+      				out_FragColor = vec4(1.0,1.0,1.0,1.0)*textureValueMerged;
+      		}
+    </script>
+
+  <script id="processingFragShader" type="shader">
+      precision highp float;
+
+      uniform sampler2D image;
+      uniform int kernelSize;
+      uniform float colorScaleR;
+      uniform float colorScaleG;
+      uniform float colorScaleB;
+      uniform bool invert;
+      uniform float imageWidth;
+      uniform float imageHeight;
+      uniform int anaglyph;
+      uniform float std;
+      uniform bool gaussianFlag;
+      uniform bool laplacianFlag;
+      uniform bool medianFlag;
+      uniform bool seperableFlag;
+
+      out vec4 out_FragColor;
+
+
+      // ------------------------------
+      // ANAGLYPH FUNCTIONS
+      // ------------------------------
+
+      vec4 TrueAnaglyph(vec4 textureValue, vec4 textureValue2) {
+            
+        textureValue.r = textureValue.x * 0.299 + textureValue.y * 0.587 + textureValue.z * 0.114;
+        textureValue.g = 0.;
+        textureValue.b = 0.;
+
+        textureValue2.x = 0.;
+        textureValue2.y = 0.;
+        textureValue2.z = textureValue2.x * 0.299 + textureValue2.y * 0.587 + textureValue2.z * 0.114;
+
+        vec4 res = (textureValue + textureValue2);
+
+        return res;
+      }
+
+      vec4 GrayAnaglyph(vec4 textureValue, vec4 textureValue2) {
+            
+        textureValue.x = textureValue.x * 0.299 + textureValue.y * 0.587 + textureValue.z * 0.114;
+        textureValue.y = 0.;
+        textureValue.z = 0.;
+
+        textureValue2.x = 0.;
+        textureValue2.y = textureValue2.x * 0.299 + textureValue2.y * 0.587 + textureValue2.z * 0.114;
+        textureValue2.z = textureValue2.x * 0.299 + textureValue2.y * 0.587 + textureValue2.z * 0.114;
+
+        vec4 res = (textureValue + textureValue2);
+
+        return res;
+      }
+
+
+      vec4 ColorAnaglyph(vec4 textureValue, vec4 textureValue2) {
+            
+        textureValue.x = textureValue.x;
+        textureValue.y = 0.;
+        textureValue.z = 0.;
+
+        textureValue2.x = 0.;
+        textureValue2.y =  textureValue2.y;
+        textureValue2.z = textureValue2.z;
+
+        vec4 res = (textureValue + textureValue2);
+
+        return res;
+      }
+
+      vec4 HalfColorAnaglyph(vec4 textureValue, vec4 textureValue2) {
+            
+        textureValue.x = textureValue.x * 0.299 + textureValue.y * 0.587 + textureValue.z * 0.114;
+        textureValue.y = 0.;
+        textureValue.z = 0.;
+
+        textureValue2.x = 0.;
+        textureValue2.y =  textureValue2.y;
+        textureValue2.z = textureValue2.z;
+
+        vec4 res = (textureValue + textureValue2);
+
+        return res;
+      }
+
+      vec4 OptimisedAnaglyph(vec4 textureValue, vec4 textureValue2) {
+            
+        textureValue.x = textureValue.x * 0. + textureValue.y * 0.7 + textureValue.z * 0.3;
+        textureValue.y = 0.;
+        textureValue.z = 0.;
+
+        textureValue2.x = 0.;
+        textureValue2.y =  textureValue2.y;
+        textureValue2.z = textureValue2.z;
+
+        vec4 res = (textureValue + textureValue2);
+
+        return res;
+      }
+
+
+
+      // ------------------------------
+      // HELPER FUNCTIONS
+      // ------------------------------
+
+      // Gaussian filter
+      float gaussian(float x, float sigma) {
+        return exp(-(x * x) / (2.0 * sigma * sigma)) / (sqrt(2.0 * 3.14159) * sigma);
+      }
+
+      float getMedian(float[100] arr, int size) {
+        // Sort the array
+        for (int i = 0; i < size - 1; i++) {
+          for (int j = 0; j < size - i - 1; j++) {
+            if (arr[j] > arr[j + 1]) {
+              float temp = arr[j];
+              arr[j] = arr[j + 1];
+              arr[j + 1] = temp;
+            }
+          }
+        }
+      
+        // Find the median
+        if (size % 2 == 0) {
+          return (arr[size / 2 - 1] + arr[size / 2]) / 2.;
+        } else {
+          return arr[size / 2];
+        }
+      }
+      
+  
+      void main(void) {
+
+        vec4 textureValue = vec4 ( 0,0,0,1 );
+        vec4 textureValue2 = vec4 ( 0,0,0,1 );
+
+        // no filter
+        if (!gaussianFlag && !laplacianFlag && !medianFlag && !seperableFlag){
+          textureValue += texelFetch( image, ivec2(int(gl_FragCoord.x/2.0), int(gl_FragCoord.y)), 0 );
+          textureValue2 += texelFetch( image, ivec2(int(imageWidth/2.0 + gl_FragCoord.x/2.0), int(gl_FragCoord.y)), 0 );
+        }
+
+        // ------------
+        // GAUSSIAN
+        // ------------
+        if (gaussianFlag){
+          vec4 mostRecentTextureVal = vec4 ( 0,0,0,0 );
+          vec4 mostRecentTextureVal2 = vec4 ( 0,0,0,0 );
+          float counter1 = 0.;
+          float counter2 = 0.;
+          for (int i=-kernelSize;i<=kernelSize;i++)
+              for (int j=-kernelSize;j<=kernelSize;j++)
+              {
+                  //texture1
+                  if (float(i + int(gl_FragCoord.x)) < imageWidth && float(i + int(gl_FragCoord.x)) > 0. && float(j + int(gl_FragCoord.y)) < imageHeight && float(j + int(gl_FragCoord.y)) > 0.){ // grab recent texture if within bounds
+                      mostRecentTextureVal = texelFetch( image, ivec2(i+int(gl_FragCoord.x/2.0), j+int(gl_FragCoord.y)), 0 );
+                      counter1 += gaussian(float(i), std) * gaussian(float(j), std);
+                      textureValue += gaussian(float(i), std) * gaussian(float(j), std) * mostRecentTextureVal;
+
+                  } 
+                  // might need to test if mostRecentTextureVal is not 0
+                  // textureValue += gaussian(float(i), std) * gaussian(float(j), std) * mostRecentTextureVal;
+
+                  // texture2
+                  if (float(i + int(gl_FragCoord.x)) > 0.0 && float(i + int(gl_FragCoord.x)) < imageWidth && float(j + int(gl_FragCoord.y)) < imageHeight && float(j + int(gl_FragCoord.y)) > 0.){ // grab recent texture if within bounds
+                      mostRecentTextureVal2 = texelFetch( image, ivec2(i+int(imageWidth/2.0 + gl_FragCoord.x/2.0), j+int(gl_FragCoord.y)), 0 );
+                      counter2 += gaussian(float(i), std) * gaussian(float(j), std);
+                      textureValue2 += gaussian(float(i), std) * gaussian(float(j), std) * mostRecentTextureVal2;
+
+                  } 
+                  // might need to test if mostRecentTextureVal is not 0
+                  // textureValue2 += gaussian(float(i), std) * gaussian(float(j), std) * mostRecentTextureVal2;
+              }
+          textureValue /= counter1;            
+          textureValue2 /= counter2;            
+        }
+
+          
+        // ------------
+        // LAPLACIAN
+        // ------------
+        if (laplacianFlag){
+  
+          mat3 kernel = mat3(
+              -1.0, -1.0, -1.0,  
+              -1.0,  8.0, -1.0,  
+              -1.0, -1.0, -1.0   
+          );
+        
+          vec4 mostRecentTextureVal = vec4 ( 0,0,0,0 );
+          vec4 mostRecentTextureVal2 = vec4 ( 0,0,0,0 );
+          float counter1 = 0.;
+          float counter2 = 0.;
+            for (int i=-1;i<=1;i++)
+              for (int j=-1;j<=1;j++)
+              {
+                //texture1
+                if (float(i + int(gl_FragCoord.x)) < imageWidth && float(i + int(gl_FragCoord.x)) > 0. && float(j + int(gl_FragCoord.y)) < imageHeight && float(j + int(gl_FragCoord.y)) > 0.){ // grab recent texture if within bounds
+                  mostRecentTextureVal = texelFetch( image, ivec2(i+int(gl_FragCoord.x/2.0), j+int(gl_FragCoord.y)), 0 );
+                } 
+                textureValue += kernel[i+1][j+1] * mostRecentTextureVal;
+    
+                // texture2
+                if (float(i + int(gl_FragCoord.x)) > 0.0 && float(i + int(gl_FragCoord.x)) < imageWidth && float(j + int(gl_FragCoord.y)) < imageHeight && float(j + int(gl_FragCoord.y)) > 0.){ // grab recent texture if within bounds
+                  mostRecentTextureVal2 = texelFetch( image, ivec2(i+int(imageWidth/2.0 + gl_FragCoord.x/2.0), j+int(gl_FragCoord.y)), 0 );
+                } 
+                textureValue2 += kernel[i+1][j+1] * mostRecentTextureVal2;
+              }
+          textureValue = abs(textureValue)/8.0;  
+          textureValue2 = abs(textureValue2)/8.0;            
+        }
+
+        // ------------
+        // SEPERABLE GAUSSIAN (HORIZONTAL PART)
+        // ------------
+        if (seperableFlag){
+    
+          vec4 mostRecentTextureVal = vec4 ( 0,0,0,0 );
+          vec4 mostRecentTextureVal2 = vec4 ( 0,0,0,0 );
+          float counter1 = 0.;
+          float counter2 = 0.;
+          for (int i=-kernelSize;i<=kernelSize;i++)
+              {
+                  //texture1
+                  if (float(i + int(gl_FragCoord.x)) < imageWidth && float(i + int(gl_FragCoord.x)) > 0. && float(int(gl_FragCoord.y)) < imageHeight && float(int(gl_FragCoord.y)) > 0.){ // grab recent texture if within bounds
+                      mostRecentTextureVal = texelFetch( image, ivec2(i+int(gl_FragCoord.x/2.0), int(gl_FragCoord.y)), 0 );
+                      counter1 += gaussian(float(i), std);
+                      textureValue += gaussian(float(i), std) * mostRecentTextureVal;
+
+                  } 
+                  // might need to test if mostRecentTextureVal is not 0
+
+                  // texture2
+                  if (float(i + int(gl_FragCoord.x)) > 0.0 && float(i + int(gl_FragCoord.x)) < imageWidth && float(int(gl_FragCoord.y)) < imageHeight && float(int(gl_FragCoord.y)) > 0.){ // grab recent texture if within bounds
+                      mostRecentTextureVal2 = texelFetch( image, ivec2(i+int(imageWidth/2.0 + gl_FragCoord.x/2.0), int(gl_FragCoord.y)), 0 );
+                      counter2 += gaussian(float(i), std);
+                      textureValue2 += gaussian(float(i), std) * mostRecentTextureVal2;
+
+                  } 
+                  // might need to test if mostRecentTextureVal is not 0
+              }
+          textureValue /= counter1;            
+          textureValue2 /= counter2;    
+        }
+
+
+        // ------------
+        // MEDIAN DENOISING
+        // ------------
+        if (medianFlag){
+
+          int thisKernelSize = kernelSize;
+
+          // limit the kernel size due to GPU limitations 
+          if (kernelSize > 10) 
+            thisKernelSize = 10;
+
+          // 10*10 = 100, maximum array size
+          float t1RVals[100];
+          float t2RVals[100];
+          float t1GVals[100];
+          float t2GVals[100];
+          float t1BVals[100];
+          float t2BVals[100];
+
+          int counter1 = 0;
+          int counter2 = 0;
+
+          for (int i=-thisKernelSize;i<=thisKernelSize;i++)
+            for (int j=-thisKernelSize;j<=thisKernelSize;j++)
+            {
+                //texture1
+                if (float(i + int(gl_FragCoord.x)) < imageWidth && float(i + int(gl_FragCoord.x)) > 0. && float(j + int(gl_FragCoord.y)) < imageHeight && float(j + int(gl_FragCoord.y)) > 0.){ // grab recent texture if within bounds
+                  t1RVals[counter1] = texelFetch( image, ivec2(i+int(gl_FragCoord.x/2.0), j+int(gl_FragCoord.y)), 0 ).r;
+                  t1GVals[counter1] = texelFetch( image, ivec2(i+int(gl_FragCoord.x/2.0), j+int(gl_FragCoord.y)), 0 ).g;
+                  t1BVals[counter1] = texelFetch( image, ivec2(i+int(gl_FragCoord.x/2.0), j+int(gl_FragCoord.y)), 0 ).b;
+
+                  counter1++;
+                } 
+
+                // texture2
+                if (float(i + int(gl_FragCoord.x)) > 0.0 && float(i + int(gl_FragCoord.x)) < imageWidth && float(j + int(gl_FragCoord.y)) < imageHeight && float(j + int(gl_FragCoord.y)) > 0.){ // grab recent texture if within bounds
+                  t2RVals[counter2] = texelFetch( image, ivec2(i+int(imageWidth/2.0 + gl_FragCoord.x/2.0), j+int(gl_FragCoord.y)), 0  ).r;
+                  t2GVals[counter2] = texelFetch( image, ivec2(i+int(imageWidth/2.0 + gl_FragCoord.x/2.0), j+int(gl_FragCoord.y)), 0  ).g;
+                  t2BVals[counter2] = texelFetch( image, ivec2(i+int(imageWidth/2.0 + gl_FragCoord.x/2.0), j+int(gl_FragCoord.y)), 0  ).b;
+
+                  counter2++;
+                } 
+            }
+          textureValue.r = getMedian(t1RVals, counter1);
+          textureValue.g = getMedian(t1GVals, counter1);
+          textureValue.b = getMedian(t1BVals, counter1);
+
+          textureValue2.r = getMedian(t2RVals, counter2);
+          textureValue2.g = getMedian(t2GVals, counter2);
+          textureValue2.b = getMedian(t2BVals, counter2);
+        }            
+
+        // ------------
+        // ANAGLYPHS
+        // ------------
+        vec4 textureValueMerged;
+        switch (anaglyph) {
+          case 0:
+            textureValueMerged = TrueAnaglyph(textureValue, textureValue2);
+            break;
+          case 1:
+            textureValueMerged = GrayAnaglyph(textureValue, textureValue2);
+            break;
+          case 2:
+            textureValueMerged = ColorAnaglyph(textureValue, textureValue2);
+            break;
+          case 3:
+            textureValueMerged = HalfColorAnaglyph(textureValue, textureValue2);
+            break;
+          case 4:
+            textureValueMerged = OptimisedAnaglyph(textureValue, textureValue2);
+            break;
+          default:
+            textureValueMerged = textureValue;// + textureValue2;
+            break;
+        }
+
+        out_FragColor = vec4(vec3(colorScaleR,colorScaleG,colorScaleB),1.0)*textureValueMerged;
+        if (invert)
+        {
+          out_FragColor = vec4(1,1,1,0) - out_FragColor;
+          out_FragColor.a = 1.0;
+        }
+    }
+
+
+      
+    </script>
+
+  <script async src="https://unpkg.com/es-module-shims@1.3.6/dist/es-module-shims.js"></script>
+  <script type="importmap">
+		  {
+			"imports": {
+			  "three": "https://unpkg.com/three@0.161.0/build/three.module.js",
+			  "three/addons/": "https://unpkg.com/three@0.161.0/examples/jsm/"
+			}
+		  }
+		</script>
+
+  <script type="module">
+    import * as THREE from 'three';
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+    import { GUI } from "three/addons/libs/lil-gui.module.min.js";
+    import WEBGL from "three/addons/capabilities/WebGL.js";
+
+    function IVimageProcessing(height, width, imageProcessingMaterial) {
+      this.height = height;
+      this.width = width;
+
+      //3 rtt setup
+      this.scene = new THREE.Scene();
+      this.orthoCamera = new THREE.OrthographicCamera(
+        -1,
+        1,
+        1,
+        -1,
+        1 / Math.pow(2, 53),
+        1
+      );
+
+      //4 create a target texture
+      var options = {
+        minFilter: THREE.NearestFilter,
+        magFilter: THREE.NearestFilter,
+        format: THREE.RGBAFormat,
+        type: THREE.UnsignedByteType,
+        //          type:THREE.FloatType,
+        canvas: canvas,
+        context: context,
+      };
+      this.rtt = new THREE.WebGLRenderTarget(width, height, options);
+
+      var geom = new THREE.BufferGeometry();
+      geom.setAttribute(
+        "position",
+        new THREE.BufferAttribute(
+          new Float32Array([
+            -1, -1, 0, 1, -1, 0, 1, 1, 0, -1, -1, 0, 1, 1, 0, -1, 1, 0,
+          ]),
+          3
+        )
+      );
+      this.scene.add(new THREE.Mesh(geom, imageProcessingMaterial));
+    }
+
+    function IVprocess(imageProcessing, renderer) {
+      renderer.setRenderTarget(imageProcessing.rtt);
+      renderer.render(imageProcessing.scene, imageProcessing.orthoCamera);
+      renderer.setRenderTarget(null);
+    }
+
+    var camera, controls, scene, renderer, container;
+    var context, canvas;
+    var processedPlane, oriVidPlane;
+
+    // VIDEO AND THE ASSOCIATED TEXTURE
+    var video, videoTexture;
+
+    var imageProcessing, imageProcessingMaterial, verticalProcessing, verticalImageProcessingMaterial;
+
+    // GUI
+    var gui;
+
+    init();
+    animate();
+
+    function init() {
+      if (WEBGL.isWebGL2Available() === false) {
+        document.body.appendChild(WEBGL.getWebGL2ErrorMessage());
+      }
+      container = document.createElement("div");
+      document.body.appendChild(container);
+
+      canvas = document.createElement("canvas");
+      context = canvas.getContext("webgl2");
+      document.body.appendChild(canvas);
+
+      scene = new THREE.Scene();
+
+      renderer = new THREE.WebGLRenderer({
+        canvas: canvas,
+        context: context,
+      }); //, antialias: true, alpha: true } );
+      renderer.autoClear = false;
+      renderer.setPixelRatio(window.devicePixelRatio);
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      renderer.shadowMap.enabled = false;
+
+      container.appendChild(renderer.domElement);
+
+      camera = new THREE.PerspectiveCamera(
+        75,
+        window.innerWidth / window.innerHeight,
+        0.001,
+        10
+      );
+      camera.position.z = 0.7;
+      controls = new OrbitControls(camera, renderer.domElement);
+      controls.minDistance = 0.005;
+      controls.maxDistance = 1.0;
+      controls.enableRotate = true;
+      controls.addEventListener("change", render);
+      controls.update();
+
+      let parameters = {
+        anaglyph: "None",
+        video: "moon_anaglyph.mp4",
+      }
+      let anaglyphTypes = ['TrueAnaglyph', 'GrayAnaglyph', 'ColorAnaglyph', 'HalfColorAnaglyph', 'OptimisedAnaglyph', 'None']
+
+      let videoSrcs = ["moon_anaglyph.mp4", "city_anaglyph.mp4", "bigbuckbunny.mp4"]
+      video = document.createElement("video");
+      video.src = videoSrcs[0];
+      // video.src = "city_anaglyph.mp4";
+      video.load();
+      video.muted = true;
+      video.loop = true;
+
+      video.onloadeddata = function () {
+        videoTexture = new THREE.VideoTexture(video);
+        videoTexture.minFilter = THREE.NearestFilter;
+        videoTexture.magFilter = THREE.NearestFilter;
+        videoTexture.generateMipmaps = false;
+        videoTexture.format = THREE.RGBAFormat;
+
+        var imageTexture = videoTexture;
+
+        // Initial material for processingFragShader
+        imageProcessingMaterial = new THREE.RawShaderMaterial({
+          uniforms: {
+            kernelSize: { type: "i", value: 1 },
+            colorScaleR: { type: "f", value: 1.0 },
+            colorScaleG: { type: "f", value: 1.0 },
+            colorScaleB: { type: "f", value: 1.0 },
+            invert: { type: "b", value: false },
+            gaussianFlag: { type: "b", value: false },
+            laplacianFlag: { type: "b", value: false },
+            medianFlag: { type: "b", value: false },
+            seperableFlag: { type: "b", value: false },
+            image: { type: "t", value: videoTexture },
+            imageWidth: { type: "f", value: video.videoWidth },
+            imageHeight: { type: "f", value: video.videoHeight },
+            anaglyph: { type: "i", value: anaglyphTypes.indexOf(parameters.anaglyph) },
+            std: { type: "f", value: 2.0 },
+          },
+          vertexShader: document.getElementById("vertShader").text,
+          fragmentShader: document.getElementById("processingFragShader").text,
+          glslVersion: THREE.GLSL3,
+        });
+
+        imageProcessing = new IVimageProcessing(
+          video.videoHeight,
+          video.videoWidth,
+          imageProcessingMaterial
+        );
+
+        // Material for vertical processing shader, used for seperable filter
+        verticalImageProcessingMaterial = new THREE.RawShaderMaterial({
+          uniforms: {
+            kernelSize: { type: "i", value: 1 },
+            std: { type: "f", value: 2.0 },
+
+            seperableFlag: { type: "b", value: false },
+            image: { type: "t", value: imageProcessing.rtt.texture },
+            imageWidth: { type: "f", value: video.videoWidth },
+            imageHeight: { type: "f", value: video.videoHeight },
+          },
+          vertexShader: document.getElementById("vertShader").text,
+          fragmentShader: document.getElementById("gausVertFragShader").text,
+          glslVersion: THREE.GLSL3,
+        });
+
+        verticalProcessing = new IVimageProcessing(
+          video.videoHeight,
+          video.videoWidth,
+          verticalImageProcessingMaterial
+        );
+
+        let anaglyphWidth = video.videoWidth / 2;
+
+        // PROCESSED VIDEO MATERIALS AND OBJECTS
+        var processedVidGeo = new THREE.PlaneGeometry(
+          1,
+          video.videoHeight / anaglyphWidth
+        );
+
+        var processedVidMat = new THREE.MeshBasicMaterial({
+          map: verticalProcessing.rtt.texture,
+          side: THREE.DoubleSide,
+        });
+        processedPlane = new THREE.Mesh(processedVidGeo, processedVidMat);
+        processedPlane.receiveShadow = false;
+        processedPlane.castShadow = false;
+        scene.add(processedPlane);
+
+        // ORIGINAL VIDEO MATERIALS AND OBJECTS
+        var oriVidGeo = new THREE.PlaneGeometry(
+          1,
+          video.videoHeight / video.videoWidth
+        );
+        var oriVidMat = new THREE.MeshBasicMaterial({
+          map: videoTexture,
+          side: THREE.DoubleSide,
+        });
+        oriVidPlane = new THREE.Mesh(oriVidGeo, oriVidMat);
+        oriVidPlane.position.z = -0.5;
+        oriVidPlane.receiveShadow = false;
+        oriVidPlane.castShadow = false;
+        scene.add(oriVidPlane);
+
+        // ---------
+        // GUIS
+        // ---------
+        {
+
+          var pausePlayObj = {
+            pausePlay: function () {
+              if (!video.paused) {
+                console.log("pause");
+                video.pause();
+              } else {
+                console.log("play");
+                video.play();
+              }
+            },
+            add10sec: function () {
+              video.currentTime = video.currentTime + 10;
+              console.log(video.currentTime);
+            },
+          };
+
+
+          gui = new GUI();
+          gui
+            .add(imageProcessingMaterial.uniforms.colorScaleR, "value", 0, 1)
+            .name("Red");
+          gui
+            .add(imageProcessingMaterial.uniforms.colorScaleG, "value", 0, 1)
+            .name("Green");
+          gui
+            .add(imageProcessingMaterial.uniforms.colorScaleB, "value", 0, 1)
+            .name("Blue");
+
+          gui
+            .add(imageProcessingMaterial.uniforms.invert, "value")
+            .name("Invert");
+          let vidgui = gui.addFolder("Video controls");
+          vidgui.add(pausePlayObj, "pausePlay").name("Pause/play video");
+          vidgui.add(pausePlayObj, "add10sec").name("Add 10 seconds");
+
+          vidgui.add(parameters, 'video', videoSrcs).name('Video').onChange(function (value) {
+            pausePlayObj.video = value;
+            video.src = value;
+            video.load();
+            video.play();
+          });
+          let imgui = gui.addFolder("Image Processing");
+          imgui
+            .add(imageProcessingMaterial.uniforms.gaussianFlag, "value")
+            .name("Gaussian Blur");
+          imgui
+            .add(imageProcessingMaterial.uniforms.laplacianFlag, "value")
+            .name("Laplacian Filter");
+          imgui
+            .add(imageProcessingMaterial.uniforms.medianFlag, "value")
+            .name("Median Filter");
+          imgui
+            .add(imageProcessingMaterial.uniforms.kernelSize, "value", 0, 50, 1)
+            .name("kernelSize");
+          imgui
+            .add(imageProcessingMaterial.uniforms.std, "value", 0, 21)
+            .name("std");
+
+          let seperableFilter = imgui.addFolder("Seperable Filter");
+          seperableFilter
+            .add(imageProcessingMaterial.uniforms.seperableFlag, "value")
+            .name("Seperable Filter").onChange(function (value) {
+              verticalImageProcessingMaterial.uniforms.seperableFlag.value = value;
+            })
+          seperableFilter
+            .add(verticalImageProcessingMaterial.uniforms.kernelSize, "value", 0, 50, 1)
+            .name("vertical kernelSize");
+          seperableFilter
+            .add(verticalImageProcessingMaterial.uniforms.std, "value", 0, 21)
+            .name("vertical std");
+
+          seperableFilter
+            .add(imageProcessingMaterial.uniforms.kernelSize, "value", 0, 50, 1)
+            .name("horizontal kernelSize");
+          seperableFilter
+            .add(imageProcessingMaterial.uniforms.std, "value", 0, 21)
+            .name("horizontal std");
+
+
+
+          gui.add(parameters, 'anaglyph', anaglyphTypes).name('Anaglyph').onChange(function (value) {
+            imageProcessingMaterial.uniforms.anaglyph.value = anaglyphTypes.indexOf(value);
+          });
+        }
+
+        video.play();
+      };
+
+      window.addEventListener("resize", onWindowResize, false);
+    }
+
+    function render() {
+      renderer.clear();
+
+      if (typeof imageProcessing !== "undefined")
+        IVprocess(imageProcessing, renderer);
+      if (typeof verticalProcessing !== "undefined")
+        IVprocess(verticalProcessing, renderer);
+      renderer.render(scene, camera);
+    }
+
+    function animate() {
+      requestAnimationFrame(animate);
+      controls.update();
+      render();
+    }
+
+    function onWindowResize() {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      render();
+    }
+  </script>
+</body>
+
+</html>
