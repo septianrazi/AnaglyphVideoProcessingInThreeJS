@@ -48,11 +48,10 @@
       precision highp float;
 
       uniform sampler2D image;
-      uniform int kernelSize;
-     
       uniform float imageWidth;
       uniform float imageHeight;
-      uniform int anaglyph;
+
+      uniform int kernelSize;
       uniform float std;
       uniform bool seperableFlag;
 
@@ -244,8 +243,8 @@
         // GAUSSIAN
         // ------------
         if (gaussianFlag){
-          vec4 mostRecentTextureVal = vec4 ( 0,0,0,0 );
-          vec4 mostRecentTextureVal2 = vec4 ( 0,0,0,0 );
+          vec4 mostRecentTextureVal = texelFetch( image, ivec2(int(gl_FragCoord.x/2.0), int(gl_FragCoord.y)), 0 );
+          vec4 mostRecentTextureVal2 = texelFetch( image, ivec2(int(imageWidth/2.0 + gl_FragCoord.x/2.0), int(gl_FragCoord.y)), 0 );
           float counter1 = 0.;
           float counter2 = 0.;
           for (int i=-kernelSize;i<=kernelSize;i++)
@@ -256,20 +255,15 @@
                       mostRecentTextureVal = texelFetch( image, ivec2(i+int(gl_FragCoord.x/2.0), j+int(gl_FragCoord.y)), 0 );
                       counter1 += gaussian(float(i), std) * gaussian(float(j), std);
                       textureValue += gaussian(float(i), std) * gaussian(float(j), std) * mostRecentTextureVal;
-
                   } 
-                  // might need to test if mostRecentTextureVal is not 0
-                  // textureValue += gaussian(float(i), std) * gaussian(float(j), std) * mostRecentTextureVal;
-
+                  
                   // texture2
                   if (float(i + int(gl_FragCoord.x)) > 0.0 && float(i + int(gl_FragCoord.x)) < imageWidth && float(j + int(gl_FragCoord.y)) < imageHeight && float(j + int(gl_FragCoord.y)) > 0.){ // grab recent texture if within bounds
                       mostRecentTextureVal2 = texelFetch( image, ivec2(i+int(imageWidth/2.0 + gl_FragCoord.x/2.0), j+int(gl_FragCoord.y)), 0 );
                       counter2 += gaussian(float(i), std) * gaussian(float(j), std);
                       textureValue2 += gaussian(float(i), std) * gaussian(float(j), std) * mostRecentTextureVal2;
-
                   } 
-                  // might need to test if mostRecentTextureVal is not 0
-                  // textureValue2 += gaussian(float(i), std) * gaussian(float(j), std) * mostRecentTextureVal2;
+      
               }
           textureValue /= counter1;            
           textureValue2 /= counter2;            
@@ -328,8 +322,6 @@
                       textureValue += gaussian(float(i), std) * mostRecentTextureVal;
 
                   } 
-                  // might need to test if mostRecentTextureVal is not 0
-
                   // texture2
                   if (float(i + int(gl_FragCoord.x)) > 0.0 && float(i + int(gl_FragCoord.x)) < imageWidth && float(int(gl_FragCoord.y)) < imageHeight && float(int(gl_FragCoord.y)) > 0.){ // grab recent texture if within bounds
                       mostRecentTextureVal2 = texelFetch( image, ivec2(i+int(imageWidth/2.0 + gl_FragCoord.x/2.0), int(gl_FragCoord.y)), 0 );
@@ -337,7 +329,6 @@
                       textureValue2 += gaussian(float(i), std) * mostRecentTextureVal2;
 
                   } 
-                  // might need to test if mostRecentTextureVal is not 0
               }
           textureValue /= counter1;            
           textureValue2 /= counter2;    
@@ -556,8 +547,7 @@
 
       let videoSrcs = ["moon_anaglyph.mp4", "city_anaglyph.mp4", "bigbuckbunny.mp4"]
       video = document.createElement("video");
-      video.src = videoSrcs[0];
-      // video.src = "city_anaglyph.mp4";
+      video.src = "videos/" + videoSrcs[0];
       video.load();
       video.muted = true;
       video.loop = true;
@@ -696,7 +686,7 @@
 
           vidgui.add(parameters, 'video', videoSrcs).name('Video').onChange(function (value) {
             pausePlayObj.video = value;
-            video.src = value;
+            video.src = "videos/" + value;
             video.load();
             video.play();
           });
@@ -772,6 +762,13 @@
       renderer.setSize(window.innerWidth, window.innerHeight);
       render();
     }
+
+    // -------------------------------------
+    // Septian Razi
+    // Real-time Processing of Image with GPU
+    // Practical Work 1
+    // 06/04/2024
+    // -------------------------------------
   </script>
 </body>
 
